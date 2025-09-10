@@ -1,4 +1,3 @@
-
 <template>
   <v-app>
     <div v-show="isLoading" class="loading">Загрузка...</div>
@@ -289,6 +288,7 @@ const categoryHeaders = ref([
   { title: "Компания", key: "UF_CRM_1744890618774", align: "center" },
   { title: "Статус", key: "status", align: "center" },
   { title: "Сумма", key: "UF_CRM_1744062581756", align: "center" },
+  { title: "Ключевое лицо", key: "keyPerson", align: "center" },
   { title: "Комментарий", key: "COMMENTS", align: "center" },
 ]);
 
@@ -301,15 +301,37 @@ const headers2 = ref([
   { title: "План выручки", key: "planProfit", align: "center" },
   { title: "Потенциал", key: "pot", align: "center" },
   { title: "Договоренности", key: "dog", align: "center" },
-  { title: "Сумма П/Д", key: "pd", align: "center" },
+  { title: "Сумma П/Д", key: "pd", align: "center" },
 ]);
+
+async function getContactById(contactId) {
+  if (!contactId) return null;
+  
+  try {
+    const contact = await new Promise((resolve) => {
+       BX24.callMethod(
+          'crm.contact.get',
+          {
+              id: contactId,
+          },
+          (result) => {
+            resolve(result.data());
+          },
+      );
+    });
+    return contact;
+  } catch (error) {
+    console.error('Ошибка получения контакта:', error);
+    return null;
+  }
+}
 
 const groupedDeals = computed(() => {
   const groups = {};
   const mergedCategories = [
-    { title: "Потенциал", ids: ["C32:UC_LXYCFO", "C32:UC_VJZ0FL"] },
-    { title: "Договоренности", ids: ["C32:UC_6VDO9F", "C32:UC_5BBXZ5"] },
     { title: "Передано", ids: ["C32:UC_R5DX1H"] },
+    { title: "Договоренности", ids: ["C32:UC_6VDO9F", "C32:UC_5BBXZ5"] },
+    { title: "Потенциал", ids: ["C32:UC_LXYCFO", "C32:UC_VJZ0FL"] },
     { title: "Отказ", ids: ["LOSE"] },
   ];
 
@@ -329,6 +351,7 @@ const groupedDeals = computed(() => {
             status: deal.status,
             count: 0,
             UF_CRM_1744062581756: 0,
+            keyPerson: deal.keyPerson,
             COMMENTS: [],
             STAGE_ID: deal.STAGE_ID
           };
@@ -456,38 +479,133 @@ function stageMap(stage) {
   }
   return stageName;
 }
-
 async function exportToExcel() {
   try {
     isLoading.value = true;
     const wb = XLSX.utils.book_new();
-    Object.keys(groupedDeals.value).forEach((catId, index) => {
+    
+    // Создаем массив для всех данных
+    const allData = [];
+
+    // Проходим по всем группам и добавляем их данные
+    Object.keys(groupedDeals.value).forEach((catId) => {
       const group = groupedDeals.value[catId];
-      const sheetData = [];
-      sheetData.push(categoryHeaders.value.map(header => header.title));
+      
+      // Добавляем заголовок группы (будем объединять ячейки)
+      allData.push([group.title]);
+      
+      // Добавляем заголовки таблицы
+      allData.push(categoryHeaders.value.map(header => header.title));
+      
+      // Добавляем данные группы
       group.items.forEach(item => {
         const row = categoryHeaders.value.map(header => {
           if (header.key === 'UF_CRM_1744062581756') {
             return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(item[header.key]);
           } else if (header.key === 'COMMENTS') {
             return replaceBrackets(item[header.key] || '').replace(/<[^>]+>/g, '');
+          } else if (header.key === 'keyPerson') {
+            return item[header.key] || 'Не указано';
           }
           return item[header.key] || '';
         });
-        sheetData.push(row);
+        allData.push(row);
       });
-      const totalRow = Array(categoryHeaders.value.length).fill('');
-      if(group.title !== "Отказ"){
+      
+      // Добавляем итоговую строку для группы (кроме Отказа)
+      if (group.title !== "Отказ") {
+        const totalRow = Array(categoryHeaders.value.length).fill('');
         totalRow[0] = 'Итого:';
-        totalRow[categoryHeaders.value.length - 2] = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(group.totalSum);
+        totalRow[categoryHeaders.value.length - 3] = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(group.totalSum);
+        allData.push(totalRow);
       }
-
-      sheetData.push(totalRow);
-      const ws = XLSX.utils.aoa_to_sheet(sheetData);
-      ws['!cols'] = categoryHeaders.value.map(() => ({ wch: 20 }));
-      XLSX.utils.book_append_sheet(wb, ws, group.title.slice(0, 30));
+      
+      // Добавляем пустые строки между группами
+      allData.push(['']);
     });
-    XLSX.writeFile(wb, 'Deals_Export.xlsx');
+
+    // Создаем рабочий лист
+    const ws = XLSX.utils.aoa_to_sheet(allData);
+    
+    // Настраиваем ширину колонок
+    ws['!cols'] = categoryHeaders.value.map(() => ({ wch: 25 }));
+    
+    // Определяем диапазон ячеек
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    
+    // Переменные для отслеживания позиций заголовков групп
+    let groupHeaderRow = 2; // Начинаем с третьей строки (после основного заголовка)
+    
+    // Применяем стили ко всем ячейкам
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cell_address = {c: C, r: R};
+        const cell_ref = XLSX.utils.encode_cell(cell_address);
+        
+        if (!ws[cell_ref]) continue;
+        
+        // Основной заголовок отчета
+        if (R === 0 && C === 0) {
+          ws[cell_ref].s = {
+            font: { bold: true, sz: 16 },
+            alignment: { horizontal: "center" }
+          };
+          // Объединяем ячейки для основного заголовка
+          if (!ws['!merges']) ws['!merges'] = [];
+          ws['!merges'].push({ s: {r: 0, c: 0}, e: {r: 0, c: categoryHeaders.value.length - 1} });
+        }
+        
+        // Заголовки групп
+        const groupTitles = ["Передано", "Договоренности", "Потенциал", "Отказ"];
+        if (groupTitles.includes(ws[cell_ref].v)) {
+          ws[cell_ref].s = {
+            fill: { 
+              patternType: "solid", 
+              fgColor: { 
+                rgb: ws[cell_ref].v === "Передано" ? "7BC56E" : 
+                     ws[cell_ref].v === "Договоренности" ? "FFF893" : 
+                     ws[cell_ref].v === "Потенциал" ? "FFF893" : 
+                     "FF5852" 
+              } 
+            },
+            font: { bold: true, color: { rgb: "000000" } },
+            alignment: { horizontal: "center" }
+          };
+          
+          // Объединяем ячейки для заголовков групп
+          if (!ws['!merges']) ws['!merges'] = [];
+          ws['!merges'].push({ 
+            s: {r: R, c: 0}, 
+            e: {r: R, c: categoryHeaders.value.length - 1} 
+          });
+          
+          groupHeaderRow = R;
+        }
+        
+        // Заголовки столбцов (первая строка после заголовка группы)
+        if (R === groupHeaderRow + 1) {
+          ws[cell_ref].s = {
+            fill: { patternType: "solid", fgColor: { rgb: "676767" } },
+            font: { bold: true, color: { rgb: "FFFFFF" } },
+            alignment: { horizontal: "center" }
+          };
+        }
+        
+        // Итоговые строки
+        if (ws[cell_ref].v === 'Итого:') {
+          ws[cell_ref].s = {
+            font: { bold: true },
+            alignment: { horizontal: "left" }
+          };
+        }
+      }
+    }
+
+    // Добавляем лист в книгу
+    XLSX.utils.book_append_sheet(wb, ws, 'Отчет по сделкам');
+    
+    // Сохраняем файл
+    XLSX.writeFile(wb, 'Deals_Report.xlsx');
   } catch (error) {
     errorDisplay.value = error.message || 'Ошибка при экспорте в Excel';
     errorDialog.value = true;
@@ -533,7 +651,7 @@ const getData = async () => {
   } else {
     dates[1] = null;
   }
-  let dealsLocal = await callApi("crm.deal.list", { "STAGE_ID": filterCategory, "UF_CRM_1742797326": filterEvents }, ["UF_CRM_1744096783472", 'UF_CRM_1742797326', "STAGE_ID", "ASSIGNED_BY_ID", 'UF_CRM_1744890618774', 'UF_CRM_1744062581756', 'UF_CRM_1745995594', 'UF_CRM_1744064620850', 'UF_CRM_1744095783871', 'UF_CRM_1742906712910', "UF_CRM_1745222013992", "UF_CRM_1742971372921", "UF_CRM_1742972105926", "UF_CRM_1742972167794", "UF_CRM_1745308616558", "COMMENTS"], null, 0, 0);
+  let dealsLocal = await callApi("crm.deal.list", { "STAGE_ID": filterCategory, "UF_CRM_1742797326": filterEvents }, ["UF_CRM_1744096783472", 'UF_CRM_1742797326', "STAGE_ID", "ASSIGNED_BY_ID", 'UF_CRM_1744890618774', 'UF_CRM_1744062581756', 'UF_CRM_1745995594', 'UF_CRM_1744064620850', 'UF_CRM_1744095783871', 'UF_CRM_1742906712910', "UF_CRM_1745222013992", "UF_CRM_1742971372921", "UF_CRM_1742972105926", "UF_CRM_1742972167794", "UF_CRM_1745308616558", "COMMENTS", "CONTACT_ID"], null, 0, 0);
   const date = moment();
   const isoDate = date.toISOString();
   events.value = await new Promise((resolve) => {
@@ -571,6 +689,15 @@ const getData = async () => {
   });
   const usersFind = Array.from(new Set(dealsLocal.map(deal => deal.ASSIGNED_BY_ID)));
   const users = await callApi("user.get", { "ID": usersFind }, []);
+const contactIds = Array.from(new Set(dealsLocal.map(deal => deal.CONTACT_ID).filter(id => id)));
+
+  const contacts = {};
+  for (const contactId of contactIds) {
+    const contact = await getContactById(contactId);
+    if (contact) {
+      contacts[contactId] = contact;
+    }
+  }
   dealsLocal.forEach(obj => {
     const event = events.value.find(e => e.id == obj.UF_CRM_1742797326);
     const user = users.find(e => e.ID == obj.ASSIGNED_BY_ID);
@@ -585,6 +712,12 @@ const getData = async () => {
     obj.ASSIGNED_BY_ID = displayFullName(user.LAST_NAME, user.NAME, user.SECOND_NAME);
     obj.status = status && status.title ? status.title : "";
     obj.stage = stageMap(obj.STAGE_ID);
+    if (obj.CONTACT_ID && contacts[obj.CONTACT_ID]) {
+      const contact = contacts[obj.CONTACT_ID];
+      obj.keyPerson = displayFullName(contact.LAST_NAME, contact.NAME, contact.SECOND_NAME);
+    } else {
+      obj.keyPerson = "Не указано";
+    }
   });
   dealsLocal.forEach(deal => {
     totalRow.value.UF_CRM_1745222013992 += +deal.UF_CRM_1745222013992;
@@ -605,7 +738,6 @@ function getTitleClass(title) {
   return { 'background-color': 'grey' };
 }
 </script>
-
 <style lang="sass">
   .v-list-item__content
     display: flex
@@ -731,5 +863,15 @@ function getTitleClass(title) {
 
   .v-main
     padding: 0.75rem
+
+  .v-data-table__th 
+    background: #676767
+    color: white
+
+  tbody .v-data-table__tr:nth-child(even)
+    background-color: white
+
+  tbody .v-data-table__tr:nth-child(odd)
+    background-color: #dddddd
 
 </style>
