@@ -1,122 +1,163 @@
 <template>
   <v-app>
-    <div v-show="isLoading" class="loading">Загрузка...</div>
-    <v-main>
-      <v-expansion-panels class="panel" v-model="panel">
-        <v-expansion-panel>
-          <v-expansion-panel-title>Фильтры</v-expansion-panel-title>
-          <v-expansion-panel-text>
-            <div class="filters">
-              <v-autocomplete
-                v-model="filters.selected.events"
-                :items="filters.value.events"
-                item-title="title"
-                item-value="id"
-                label="Мероприятие"
-                single-line
-                hide-details
-                variant="outlined"
-                multiple
-                chips
-                clearable
-              >
-                <template v-slot:prepend-item>
-                  <v-list-item>
-                    <v-list-item-content>
-                      <v-list-item-title>
-                        <v-checkbox label="Выбрать все мероприятия" v-model="filters.selectAll.events" @change="() => toggleSelectAll('events')" />
-                      </v-list-item-title>
-                    </v-list-item-content>
-                  </v-list-item>
-                </template>
-              </v-autocomplete>
-            </div>
-          </v-expansion-panel-text>
-        </v-expansion-panel>
-      </v-expansion-panels>
-      <div class="buttons">
-        <v-btn color="primary" @click="disableFilters()">отключить фильтры</v-btn>
-        <v-btn color="info" @click="getData()">получить данные</v-btn>
-        <v-btn color="success" class="takeScreenshot" @click="takeScreenshot">Создать скриншот</v-btn>
-        <v-btn color="warning" @click="exportToExcel">Экспорт в Excel</v-btn>
-      </div>
-      <template v-for="(group, catId) in groupedDeals" :key="catId">
-        <v-card class="my-4">
-          <v-card-title class="text-center text-h5" :style="getTitleClass(group.title)">
-            {{ group.title }}
-          </v-card-title>
-        </v-card>
-        <v-data-table
-          :items="group.items"
-          :headers="categoryHeaders"
-          hide-default-footer
+    <div v-if="isLoading" class="loading">Загрузка...</div>
+    <v-main v-else>
+      <v-container class="pa-8">
+        <v-stepper
+          v-model="step"
+          :items="['Основные данные', 'Дополнительные поля']"
         >
-          <template v-slot:item.UF_CRM_1744062581756="{ item }">
-            {{ new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(item.UF_CRM_1744062581756) }}
-          </template>
-          <template v-slot:item.COMMENTS="{ item }">
-            <div v-html="replaceBrackets(item.COMMENTS)"></div>
-          </template>
-          <template v-slot:tfoot>
-            <tfoot v-if="group.title !== 'Отказ'">
-              <tr class="v-data-table__footer-row">
-                <td colspan="2" class="text-left">Итого:</td>
-                <td>{{ new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(group.totalSum) }}</td>
-              </tr>
-            </tfoot>
-          </template>
-        </v-data-table>
-      </template>
-      <img v-if="screenshotSrc" ref="screenshotImg" :src="screenshotSrc" alt="Скриншот страницы" id="screenshotImg"/>
-      <div>
-        <!-- Диалоговое окно выбора чата -->
-        <v-dialog v-model="dialog" max-width="600">
-          <v-card>
-            <v-card-title class="headline">
-              Выберите чат для отправки сообщения
-            </v-card-title>
-            <v-card-text>
-              <v-text-field
-                v-model="search"
-                label="Поиск чатов"
-                append-icon="mdi-magnify"
-                clearable
-                class="chats-input"
-              ></v-text-field>
-              <v-list>
-                <v-list-item
-                  v-for="chat in filteredChats"
-                  :key="chat.id"
-                  @click="selectChat(chat)"
-                >
-                  <v-list-item-content>
-                    <v-list-item-title>{{ chat.title }}</v-list-item-title>
-                    <v-list-item-subtitle>
-                      {{ chat.message.text || 'Нет сообщений' }}
-                    </v-list-item-subtitle>
-                  </v-list-item-content>
-                  <v-list-item-action>
-                    <v-icon v-if="selectedChatId.id === chat.id" color="primary">
-                      mdi-check
-                    </v-icon>
-                  </v-list-item-action>
-                </v-list-item>
-              </v-list>
-            </v-card-text>
-            <v-card-actions>
-              <v-spacer></v-spacer>
-              <v-btn text @click="dialog = false">Отмена</v-btn>
-              <v-btn
-                color="primary"
-                :disabled="!selectedChatId.id"
-                @click="sendMessage"
-              >
-                Отправить
-              </v-btn>
-            </v-card-actions>
-          </v-card>
-        </v-dialog>
+          <template v-slot:item.1>
+                <v-card title="Дополнительные поля">
+                  <v-card-text>
+        <v-autocomplete
+          v-model="form.direction"
+          :items="directions"
+          label="Направление"
+          @update:modelValue="onDirectionChange"
+          required
+          variant="outlined"
+          :rules="[v => !!v || 'Поле обязательно']"
+        ></v-autocomplete>
+        <v-autocomplete
+          v-if="form.direction === '1С'"
+          v-model="form.requestType"
+          :items="requestTypes"
+          label="Тип заявки"
+          @update:modelValue="onRequestTypeChange"
+          required
+          variant="outlined"
+        ></v-autocomplete>
+        <v-autocomplete
+          v-if="(form.direction === '1С' && form.requestType) || (form.direction !== '1С')"
+          v-model="form.category"
+          :items="categories"
+          label="Категория"
+          @update:modelValue="onCategoryChange"
+          required
+          variant="outlined"
+        ></v-autocomplete>
+        <v-autocomplete
+          v-if="(form.direction === 'ИТ' && subcategories.length > 0)"
+          v-model="form.subcategory"
+          :items="subcategories"
+          label="Подкатегория"
+          required
+          variant="outlined"
+        ></v-autocomplete>
+
+        <v-textarea
+          v-model="form.description"
+          label="Подробное описание"
+          required
+          variant="outlined"
+        ></v-textarea>
+
+        <!-- Links -->
+        <v-text-field
+          v-model="newLink"
+          label="Ссылки"
+          append-icon="mdi-plus"
+          @click:append="addLink"
+          @keyup.enter="addLink"
+          variant="outlined"
+        ></v-text-field>
+        <v-list v-if="form.links.length" class="links">
+          <v-list-item v-for="(link, index) in form.links" :key="index">
+            <v-list-item-title>{{ link }}</v-list-item-title>
+            <v-btn icon="mdi-delete" @click="removeLink(index)"></v-btn>
+          </v-list-item>
+        </v-list>
+
+        <!-- File Upload -->
+        <v-file-input
+          v-model="form.files"
+          label="Файл/ы"
+          multiple
+          chips
+          variant="outlined"
+        ></v-file-input>
+                  </v-card-text>
+                </v-card>
+    </template>
+    <template v-slot:item.2> 
+                <v-card title="Дополнительные поля">
+                  <v-card-text>
+                      <v-text-field
+                        v-model="project"
+                        label="Проект"
+                        required
+                        variant="outlined"
+                      ></v-text-field>
+
+                      <v-autocomplete
+                        v-model="urgency"
+                        :items="urgencyOptions"
+                        label="Срочность"
+                        required
+                        :rules="[v => !!v || 'Поле обязательно']"
+                        variant="outlined"
+                      ></v-autocomplete>
+
+                      <v-autocomplete
+                        v-model="importance"
+                        :items="importanceOptions"
+                        label="Важность"
+                        required
+                        :rules="[v => !!v || 'Поле обязательно']"
+                        variant="outlined"
+                      ></v-autocomplete>
+
+                      <v-autocomplete
+                        v-model="threatsOpportunities"
+                        :items="threatsOptions"
+                        label="Угрозы/Возможности"
+                        v-show="form.requestType === 'Запрос на обслуживание' || form.requestType === 'Запрос на изменение'"
+                        required
+                        :rules="[v => !!v || 'Поле обязательно']"
+                        variant="outlined"
+                      ></v-autocomplete>
+                  </v-card-text>
+                </v-card>
+    </template>
+      <div class="buttons">
+        <v-btn v-if="step > 1" @click="step--">назад</v-btn>
+        <v-btn color="primary" prepend-icon="mdi-play" @click="showVideo = true">Видеоинструкция</v-btn>
+        <v-btn v-if="step < 2 && showContinueButton" color="secondary" @click="step = 2">Продолжить</v-btn>
+        <v-btn v-if="step === 2 || !showContinueButton && step === 1"  :color="isValid ? 'success' : null" @click="completeStepper">создать заявку</v-btn>
       </div>
+        </v-stepper>
+        <v-btn class="reports-button" @click="reportsDialog = true">Отчеты</v-btn>
+      </v-container>
+    </v-main>
+      <v-dialog v-model="reportsDialog">
+        <v-card>
+          <v-card-title class="success white--text">Отчет по заявкам  категории ИТ
+          <v-btn icon small absolute right top @click="reportsDialog = false" class="ma-1 close-report">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          </v-card-title>
+          <v-card-text>
+            <TheForm @update-data="handleDataUpdate" :users="users"></TheForm>
+            <v-data-table :items="pivotTableDate" :headers="pivotTableHeaders"></v-data-table>
+            <v-data-table :items="itemsTableDate" :headers="itemsTableHeaders"></v-data-table>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn color="primary" text @click="reportsDialog = false">закрыть</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+      <v-dialog v-model="successDialog" max-width="500" class="successDialog">
+        <v-card>
+          <v-card-title class="success white--text">Успешно выполнено!</v-card-title>
+          <v-card-text class="v-card-text mt-4 text-center">Заявка успешно создана</v-card-text>
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn color="primary" text @click="successDialog = false">закрыть</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
       <v-dialog v-model="errorDialog" max-width="500" class="errorDialog">
         <v-card>
           <v-card-title class="error white--text">Ошибка!</v-card-title>
@@ -127,618 +168,648 @@
           </v-card-actions>
         </v-card>
       </v-dialog>
-    </v-main>
+<v-dialog
+        v-model="showVideo"
+        max-width="850"
+      >
+        <v-card>
+          <v-card-title class="d-flex justify-space-between align-center">
+            <span>Просмотр видео</span>
+            <v-btn
+              icon="mdi-close"
+              variant="text"
+              @click="showVideo = false"
+            ></v-btn>
+          </v-card-title>
+          <v-card-text>
+            <video
+              ref="videoPlayer"
+              class="video-player"
+              :src="videoSrc"
+              controls
+            >
+                <source :src="videoSrc" type="video/mp4">
+                Ваш браузер не поддерживает HTML5 видео.
+            </video>
+          </v-card-text>
+        </v-card>
+      </v-dialog>
   </v-app>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { callApi } from '../functions/callApi';
+import { ref, computed, onMounted, watch } from 'vue';
+import TheForm from '../components/TheForm/TheForm.vue';
 import moment from 'moment';
-import html2canvas from 'html2canvas';
-import * as XLSX from 'xlsx';
+import { callApi } from '../functions/callApi';
 
 const errorDialog = ref(false);
 const successDialog = ref(false);
 const errorDisplay = ref('');
 const isLoading = ref(true);
-const deals = ref([]);
-const deals2 = ref([]);
-const events = ref([]);
-const chats = ref([]);
-const panel = ref(true);
-const dialog = ref(false);
-const search = ref('');
-const selectedChatId = ref({ id: null, chat_id: null });
-const screenshotSrc = ref(null);
+// Form data
+const form = ref({
+  direction: null,
+  requestType: null,
+  category: null,
+  subcategory: null,
+  description: '',
+  links: [],
+  files: [],
+});
+const step = ref(1); // Начинаем сразу со 2 шага для демонстрации
+const valid = ref(false);
+const project = ref('');
+const urgency = ref(null);
+const importance = ref(null);
+const threatsOpportunities = ref(null);
+const incidentType = ref('Запрос на обслуживание'); // Это значение должно приходить с 1 шага
+const newLink = ref('');
 
-function replaceBrackets(text) {
-  if (text === null) { return ''; }
-  return text
-    .replace(/\[/g, '<')
-    .replace(/\]/g, '>')
-    .replace(/<a href=/g, '<a href=')
-    .replace(/<img src=/g, '<img src=')
-    .replace(/<div style=/g, '<div style=');
+const pivotTableDate = ref([]);
+const itemsTableDate = ref([]);
+const search = ref([]);
+
+const pivotTableHeaders = ref([
+        { title: 'Исполнитель', value: 'userName', sortable: true },
+        { title: 'Открыто', value: 'openCount', sortable: true },
+        { title: 'Закрто', value: 'closedCount', sortable: true },
+        { title: 'Всего', value: 'totalDeals', sortable: true },
+        { title: 'Времени затрачено', value: 'totalTimeSpent', sortable: true },
+        { title: 'Просрочено', value: 'overdueCount', sortable: true },
+        { title: 'Просрочено %', value: 'overduePercentage', sortable: true },
+        { title: 'Время просрочки', value: 'overdueTimeSpent', sortable: true },
+]);
+
+const itemsTableHeaders = ref([
+        { title: 'id', value: 'id', sortable: true },
+        { title: 'Исполнитель', value: 'FULL_NAME', sortable: true },
+        { title: 'Статус', value: 'stageId', sortable: true },
+        { title: 'Название', value: 'title', sortable: true },
+        { title: 'Дата начала', value: 'begindate', sortable: true },
+        { title: 'Дата выполнения', value: 'closedate', sortable: true },
+        { title: 'Время затрачено', value: 'duration', sortable: true },
+        { title: 'Подкатегория', value: 'ufCrm_47_1752752059810', sortable: true },
+        { title: 'Категория', value: 'ufCrm_47_1752822806', sortable: true },
+        { title: 'SLA выполнен', value: 'ufCrm_47_1752010288013', sortable: true },
+        { title: 'Дедлайн по SLA', value: 'ufCrm_47_1752010416', sortable: true },
+]);
+
+function findUserNameById(userId, usersArray) {
+  const user = usersArray.find(user => user.ID == userId);
+  return user ? user.FULL_NAME : 'Неизвестный';
 }
 
-const totalRow = ref({
-  UF_CRM_1745222013992: 0,
-  UF_CRM_1742971372921: 0,
-  UF_CRM_1742972167794: 0,
-  UF_CRM_1742972105926: 0,
-  UF_CRM_1744062581756: 0,
-});
-
-const filteredChats = computed(() => {
-  if (!search.value) {
-    return chats.value;
+function formatFullName(userData = {}) {
+  const { LAST_NAME, NAME, SECOND_NAME } = userData;
+  
+  // Собираем все имеющиеся части имени
+  const nameParts = [];
+  if (LAST_NAME) nameParts.push(LAST_NAME);
+  if (NAME) nameParts.push(NAME);
+  if (SECOND_NAME) nameParts.push(SECOND_NAME);
+  
+  // Если нет ни одной части
+  if (nameParts.length === 0) {
+    return 'Неизвестный пользователь';
   }
-  return chats.value.filter(chat =>
-    chat.title.toLowerCase().includes(search.value.toLowerCase())
-  );
-});
-
-function selectChat(chat) {
-  selectedChatId.value.id = chat.id;
-  selectedChatId.value.chat_id = chat.chat_id;
+  
+  // Соединяем части через пробелы
+  return nameParts.join(' ');
 }
 
-async function sendMessage() {
-  try {
-    if (!selectedChatId.value.id) return;
-    isLoading.value = true;
-    let result = '';
-    await new Promise((resolve) => {
-      BX24.callMethod(
-        "disk.folder.uploadfile",
-        {
-          id: 1143900,
-          data: { NAME: "report.jpg" },
-          fileContent: document.getElementById('screenshotImg').src.replace('data:image/png;base64,', ''),
-          generateUniqueName: true,
-        },
-        function (res) {
-          result = res.data();
-          resolve();
+const fields = ref([]);
+const stages = ref([]);
+const handleDataUpdate = async(data) => {
+  //pivotTableDate.value = data;
+  fields.value = await callApi("crm.item.fields", {}, [], 172);
+  fields.value = fields.value.fields;
+  stages.value = await new Promise((resolve) => {
+      // @ts-ignore
+      BX24.callMethod("crm.status.list", {
+        order: { SORT: "ASC" },
+        filter: { ENTITY_ID: "DYNAMIC_172_STAGE_69" },
+      }, (res) => {
+        if (res.data()) {
+          //stages = res.data();
+          resolve(res.data());
         }
-      );
+      });
     });
-    BX24.callMethod(
-      'im.disk.file.commit',
-      {
-        'CHAT_ID': selectedChatId.value.chat_id,
-        'UPLOAD_ID': result.ID,
-      },
-      function(res) {}
-    );
-  } catch (error) {
-    errorDisplay.value = error;
-    errorDialog.value = true;
-  } finally {
-    isLoading.value = false;
-    successDialog.value = true;
-    dialog.value = false;
+  calculateOverdueDeals(data);
+  itemsTableDate.value = data;
+  replaceIdsWithNames(data, fields.value);
+}
+
+function formatMillisecondsToDHM(ms, d) {
+  const duration = moment.duration(ms);
+  
+  const days = Math.floor(duration.asDays());
+  const hours = duration.hours();
+  const minutes = duration.minutes();
+  if(d){
+    return `${days} дней`;
+  }else{
+    return `${days} дней ${hours} часов ${minutes} минут`;
   }
 }
 
-async function takeScreenshot() {
-  document.querySelector(".v-expansion-panels").style.display = 'none';
-  document.querySelector(".buttons").style.display = 'none';
-  document.querySelector(".takeScreenshot").style.display = 'none';
-  try {
-    isLoading.value = true;
-    const canvas = await html2canvas(document.body);
-    const imageSrc = canvas.toDataURL('image/png');
-    screenshotSrc.value = imageSrc;
-  } catch (error) {
-    errorDisplay.value = error;
-    errorDialog.value = true;
-  } finally {
-    document.querySelector(".v-expansion-panels").style.display = 'flex';
-    document.querySelector(".buttons").style.display = 'flex';
-    document.querySelector(".takeScreenshot").style.display = 'block';
-    isLoading.value = false;
-  }
-  if (chats.value.length === 0) {
-    const result = await callApi('im.recent.list', { 'SKIP_OPENLINES': 'Y' }, [], null, null, null);
-    chats.value = JSON.parse(JSON.stringify(result));
-  }
-  dialog.value = true;
+function replaceIdsWithNames(data, fieldDefinitions) {
+   data.map(item => {
+    console.log(item);
+    const newItem = {};
+    if(item.closedate){
+      item.duration = item.closedate ? formatMillisecondsToDHM(-moment(item.begindate).diff(moment(item.closedate)), true) : "";
+    }
+
+    // Проходим по всем свойствам объекта
+    for (const key in item) {
+      const keyMod = key.replace('_', '');
+
+      if (keyMod.startsWith('ufCrm') && fieldDefinitions[keyMod] && fieldDefinitions[keyMod].items) {
+        const fieldName = fieldDefinitions[keyMod].items.find(field => field.ID == item[key]);
+        if(fieldName){
+          item[key] = fieldName.VALUE;
+        }
+      } else if(key === "ufCrm_47_1700467583" || key === "closedate" || key === "begindate" || key === "ufCrm_47_1752010416") {
+        item[key] = item[key] ? moment(item[key]).format('DD.MM.YYYY') : "";
+      } else if(key === "stageId"){
+        item.stageId = stages.value.find(stage => stage.STATUS_ID === item.stageId).NAME;
+      } else if(key === "ufCrm_47_1700468491"){
+        item.FULL_NAME = users.value.find(user => user.ID == item.ufCrm_47_1700468491).FULL_NAME;
+      } else{
+        // Оставляем другие поля как есть
+        newItem[key] = item[key];
+      }
+    }
+    
+    return newItem;
+
+  });
+
 }
 
-const filters = ref({
-  value: {
-    assigned: '',
-    events: '',
-    category: [
-      { id: "C32:UC_LXYCFO", title: "Потенциал - холодный" },
-      { id: "C32:UC_VJZ0FL", title: "Потенциал - теплый" },
-      { id: "C32:UC_6VDO9F", title: "Договоренности - холодные" },
-      { id: "C32:UC_5BBXZ5", title: "Договоренности - теплые" },
-      { id: "C32:UC_R5DX1H", title: "Передано" },
-      { id: "LOSE", title: "Отказ" },
+const calculateOverdueDeals = (data) => {
+  const userMap = {};
+  
+  data.forEach(deal => {
+    const userId = deal.ufCrm_47_1700468491; // Исполнитель
+    if (!userId) return;
+    
+    if (!userMap[userId]) {
+      userMap[userId] = {
+        userId,
+        userName: findUserNameById(userId, users.value),
+        totalDeals: 0,
+        overdueCount: 0,
+        closedCount: 0,
+        openCount: 0,
+        totalTimeSpent: 0,
+        overdueTimeSpent: 0,
+        overduePercentage: 0,
+      };
+    }
+    
+    userMap[userId].totalDeals++;
+    
+    // Проверяем, была ли сделка просрочена
+    const deadline = moment(deal.ufCrm_47_1704813732503); // Планируемая дата завершения
+    const closeDate = deal.closedate ? moment(deal.closedate) : null; // Фактическая дата завершения
+    const createDate = moment(deal.begindate); // Дата создания сделки
+    
+    // Расчет времени, затраченного на сделку (в миллисекундах)
+    if (deal.stageId === "DT172_69:SUCCESS" && closeDate) {
+      userMap[userId].totalTimeSpent += closeDate.diff(createDate);
+      userMap[userId].closedCount++;
+    } else if (deal.stageId !== "DT172_69:SUCCESS") {
+      // Для открытых сделок считаем время от создания до текущего момента
+      userMap[userId].totalTimeSpent += moment().diff(createDate);
+      userMap[userId].openCount++;
+    }
+    
+    // Проверка на просрочку
+    if (closeDate && closeDate.isAfter(deadline) && deal.stageId !== "DT172_69:SUCCESS") {
+      userMap[userId].overdueCount++;
+      userMap[userId].overdueTimeSpent += moment().diff(deadline);
+    }
+  });
+  
+  // Преобразуем данные для вывода
+  const result = Object.values(userMap).map(user => {
+    // Рассчитываем процент просроченных сделок
+    const overduePercentage = user.totalDeals > 0 
+      ? Math.round((user.overdueCount / user.totalDeals) * 100) 
+      : 0;
+
+    const totalTimeSpent = user.totalDeals > 0
+    ? formatMillisecondsToDHM(user.totalTimeSpent)
+    : '0 дней 0 часов 0 минут';
+
+    const overdueTimeSpent = user.totalDeals > 0
+    ? formatMillisecondsToDHM(user.overdueTimeSpent)
+    : '0 дней 0 часов 0 минут';
+
+    return {
+      ...user,
+      overduePercentage,
+      totalTimeSpent,
+      overdueTimeSpent,
+      // Можно добавить другие вычисляемые поля
+    };
+  });
+  
+  pivotTableDate.value = result;
+};
+// Options data
+const directions = ref(['1С', 'Битрикс24', 'ИТ']);
+
+const requestTypes = ref([
+  'Инцидент',
+  'Запрос на обслуживание',
+  'Запрос на доступ',
+  'Запрос на изменение',
+]);
+
+const categoryOptions = ref({
+  '1С': {
+    'Инцидент': [
+      '[1С]: Исправление ошибок в существующем функционале',
+      '[1С]: Правила обмена',
+    ],
+    'Запрос на обслуживание': [
+      '[1С]: Закрытие периода',
+      '[1С]: Корректировка данных',
+      '[1С]: Консультация',
+      '[1С]: Обновление версий ПО',
+    ],
+    'Запрос на изменение': [
+      '[1С]: Создание или модификация отчета/расчета/справочника/документа',
+      '[1С]: Печатная форма документа',
+    ],
+    'Запрос на доступ': [
+      '[1С]: Доступ к системе/разделам'
     ],
   },
-  selected: {
-    assigned: [],
-    events: [],
-    category: [],
-    dateFrom: null,
-    dateTo: null,
-  },
-  selectAll: {
-    assigned: false,
-    events: false,
-    category: false,
+  'Битрикс24': [
+    '[Б24]: CRM',
+    '[Б24]: Бизнес-процессы',
+    '[Б24]: Интеграции',
+    '[Б24]: Другое',
+  ],
+  'ИТ': [
+    '[ИТ]: Рабочее место',
+    '[ИТ]: Печать',
+    '[ИТ]: Электронная почта',
+    '[ИТ]: Видеоконференцсвязь. Корпоративные чаты и мессенджеры',
+    '[ИТ]: Специализированное складское и торговое оборудование',
+    '[ИТ]: Удаленный рабочий стол RDP',
+    '[ИТ]: Система контроля и управления доступом',
+    '[ИТ]: Локальная сеть (ЛВС)',
+    '[ИТ]: IT инфраструктура',
+    '[ИТ]: Электронная цифровая подпись и МЧД',
+    '[ИТ]: Телефония',
+  ],
+});
+
+const subcategoryOptions = ref({
+  'Рабочее место': [
+    'Перемещение и переподключение',
+    'Требуется помощь',
+    'Установка/удаление программного обеспечения',
+    'Подключение и настройка периферийных устройств',
+    'Комплексная подготовка согласно чек листу',
+    'Провести оценку технического состояния оборудования',
+    'Не работает периферийное устройство (мышь/клавиатура)',
+    'Ошибки в работе программного обеспечения',
+    'ПК или ноутбук не включается, перезагружается, медленно работает',
+    'Установка и настройка оборудования',
+    'Создание учетных записей',
+  ],
+  'Печать': [
+    'Подключить к принтеру / МФУ',
+    'Предоставить запасной картридж',
+    'Принтер/МФУ не печатает',
+    'Принтер/МФУ печатает с дефектами',
+    'Сканер не включается или работает с ошибками',
+    'Устранение замятия бумаги на принтере/МФУ',
+  ],
+  'Электронная почта': [
+    'Настройка переадресации почты',
+    'Настройка почтовой программы',
+    'Письма не принимаются или не отправляются',
+    'Не удается авторизоваться',
+  ],
+  'Видеоконференцсвязь. Корпоративные чаты и мессенджеры': [
+    'Установка и настройка',
+    'Ошибки при работе',
+  ],
+  'Специализированное складское и торговое оборудование': [
+    'Настройка оборудования (тсд, сканеры шк, кассы...)',
+    'Не работает оборудование',
+  ],
+  'Удаленный рабочий стол RDP': [
+    'Консультации по работе и настройка',
+    'Ошибки при работе',
+    'Ошибки при работе (более 5 человек)',
+  ],
+  'Система контроля и управления доступом': [
+    'Предоставление прав к сетевым дискам',
+    'Предоставление прав и видеонаблюдение',
+    'Регистрация на эл. площадках',
+    'Тех. поддержка соисполнителей',
+    'Удаленное подключение к сети компании (VPN)',
+    'Система контроля и управления доступом (СКУД)',
+  ],
+  'Локальная сеть (ЛВС)': [
+    'Монтаж ЛВС и WiFi точек',
+    'Поддержание и продление доменных имен в сети Интернет',
+    'Сбои в ЛВС/WiFi',
+  ],
+  'IT инфраструктура': [
+    'Изменение мониторинга',
+    'Создание виртуальной машины/изменение ресурсов',
+    'Резервная копия информационного ресурса',
+    'Восстановление информационного ресурса из резервной копии',
+  ],
+  'Электронная цифровая подпись и МЧД': [
+    'Выпуск ЭЦП',
+    'Выпуск МЧД',
+    'Проблемы с ЭЦП и МЧД',
+  ],
+  'Телефония': [
+    'Подготовка и настройка телефона',
+    'Заказ сим-карт',
+    'Настройка маршрутов обзвона',
+    'Настройка прав для входа в личный кабинет и прослушивания звонков',
+    'Не могут дозвониться',
+    'Не работает телефон',
+    'Недостаточно средств',
+  ],
+});
+
+const isValid = computed(() => {
+  if(form.value.direction === "1С" && urgency.value && importance.value){
+    return true;
+  }else if(form.value.direction !== null && form.value.direction !== "1С"){
+    return true;
+  }else{
+    return false;
   }
 });
 
-function disableFilters() {
-  panel.value = false;
-  for (let i = 0; i < Object.keys(filters.value.selectAll).length; i++) {
-    filters.value.selectAll[Object.keys(filters.value.selectAll)[i]] = false;
-    filters.value.selected[Object.keys(filters.value.selected)[i]] = [];
-  }
-  filters.value.selected.dateFrom = null;
-  filters.value.selected.dateTo = null;
-}
-
-const categoryHeaders = ref([
-  { title: "Компания", key: "UF_CRM_1744890618774", align: "center" },
-  { title: "Статус", key: "status", align: "center" },
-  { title: "Сумма", key: "UF_CRM_1744062581756", align: "center" },
-  { title: "Ключевое лицо", key: "keyPerson", align: "center" },
-  { title: "Комментарий", key: "COMMENTS", align: "center" },
-]);
-
-const headers2 = ref([
-  { title: "Мероприятие", key: "event", align: "center" },
-  { title: "Дата начала мероприятия", key: "start", align: "center" },
-  { title: "% Выполнения", key: "percent", align: "center" },
-  { title: "Собрано", key: "summ", align: "center" },
-  { title: "Собрано сверху", key: "over", align: "center" },
-  { title: "План выручки", key: "planProfit", align: "center" },
-  { title: "Потенциал", key: "pot", align: "center" },
-  { title: "Договоренности", key: "dog", align: "center" },
-  { title: "Сумma П/Д", key: "pd", align: "center" },
-]);
-
-async function getContactById(contactId) {
-  if (!contactId) return null;
-  
-  try {
-    const contact = await new Promise((resolve) => {
-       BX24.callMethod(
-          'crm.contact.get',
-          {
-              id: contactId,
-          },
-          (result) => {
-            resolve(result.data());
-          },
-      );
-    });
-    return contact;
-  } catch (error) {
-    console.error('Ошибка получения контакта:', error);
-    return null;
-  }
-}
-
-const groupedDeals = computed(() => {
-  const groups = {};
-  const mergedCategories = [
-    { title: "Передано", ids: ["C32:UC_R5DX1H"] },
-    { title: "Договоренности", ids: ["C32:UC_6VDO9F", "C32:UC_5BBXZ5"] },
-    { title: "Потенциал", ids: ["C32:UC_LXYCFO", "C32:UC_VJZ0FL"] },
-    { title: "Отказ", ids: ["LOSE"] },
-  ];
-
-  mergedCategories.forEach(merged => {
-    const activeIds = filters.value.selected.category.length === 0 
-      ? merged.ids 
-      : merged.ids.filter(id => filters.value.selected.category.includes(id));
-    
-    if (activeIds.length > 0) {
-      const categoryDeals = deals.value.filter(d => activeIds.includes(d.STAGE_ID));
-      const dealGroups = {};
-      categoryDeals.forEach(deal => {
-        const key = `${deal.UF_CRM_1744890618774}_${deal.status}`;
-        if (!dealGroups[key]) {
-          dealGroups[key] = {
-            UF_CRM_1744890618774: deal.UF_CRM_1744890618774,
-            status: deal.status,
-            count: 0,
-            UF_CRM_1744062581756: 0,
-            keyPerson: deal.keyPerson,
-            COMMENTS: [],
-            STAGE_ID: deal.STAGE_ID
-          };
-        }
-        dealGroups[key].count++;
-        dealGroups[key].UF_CRM_1744062581756 += +deal.UF_CRM_1744062581756;
-        if (deal.COMMENTS) {
-          dealGroups[key].COMMENTS.push(deal.COMMENTS);
-        }
-      });
-
-      Object.values(dealGroups).forEach(group => {
-        group.COMMENTS = group.COMMENTS.map(comment => 
-          replaceBrackets(comment || '').replace(/\n/g, '')
-        ).join('');
-      });
-
-      groups[merged.title] = {
-        title: merged.title,
-        items: Object.values(dealGroups),
-        totalSum: Object.values(dealGroups).reduce((acc, item) => acc + +item.UF_CRM_1744062581756, 0)
-      };
-    }
-  });
-  return groups;
-});
-
-const toggleSelectAll = (type) => {
-  if (filters.value.selectAll[type]) {
-    filters.value.selected[type] =
-      typeof filters.value.value[type][0] === 'object'
-        ? filters.value.value[type].map((item) => item.id || item.ID)
-        : filters.value.value[type];
+// Computed properties
+const categories = computed(() => {
+  if (form.value.direction === '1С' && form.value.requestType) {
+    return categoryOptions.value['1С'][form.value.requestType] || [];
+  } else if (form.value.direction === '1С' && !form.value.requestType) {
+    return [];
   } else {
-    filters.value.selected[type] = [];
+    return categoryOptions.value[form.value.direction] || [];
+  }
+});
+
+const subcategories = computed(() => {
+  if(form.value.category){
+      return subcategoryOptions.value[form.value.category.replace("[ИТ]: ", "")] || [];
+  }else{
+    return [];
+  }
+});
+
+const showContinueButton = ref(false);
+// Methods
+const onDirectionChange = () => {
+  if(form.value.direction === "1С" && form.value.requestType){
+    showContinueButton.value = true;
+  }else{
+    showContinueButton.value = false;
+  }
+
+  form.value.requestType = null;
+  form.value.category = null;
+  form.value.subcategory = null;
+};
+
+const reportsDialog = ref(false);
+
+const onRequestTypeChange = () => {
+  form.value.category = null;
+  form.value.subcategory = null;
+
+  if(form.value.direction === "1С" && form.value.requestType){
+    showContinueButton.value = true;
+  }else{
+    showContinueButton.value = false;
   }
 };
 
-const groupedEvents = computed(() => {
-  const groups = {};
-  deals.value.forEach(deal => {
-    const event = events.value.find(e => e.id == deal.UF_CRM_1742797326);
-    const planProfit = event && event.ufCrm38_1745221903440 ? event.ufCrm38_1745221903440.replace('|RUB', "") : 0;
-    if (!groups[deal.UF_CRM_1742797326]) {
-      groups[deal.UF_CRM_1742797326] = {
-        UF_CRM_1742797326: deal.UF_CRM_1742797326,
-        percent: event && event.ufCrm38_1750948951651 ? event.ufCrm38_1750948951651 : null,
-        start: event && event.ufCrm38_1745307580193 ? moment(event.ufCrm38_1745307580193.split('T')[0]).format('DD.MM.YYYY') : null,
-        summ: 0,
-        pot: 0,
-        planProfit: planProfit,
-        over: -planProfit,
-        dog: 0,
-        pd: 0,
-        UF_CRM_1744062581756: deal.UF_CRM_1744062581756,
-        STAGE_ID: deal.STAGE_ID,
-        event: event && event.title ? event.title : '',
-        UF_CRM_1745222013992: deal.UF_CRM_1745222013992,
-      };
-    }
-    const summDeal = parseInt(deal.UF_CRM_1744062581756);
-    if (deal.STAGE_ID === "C32:UC_LXYCFO" || deal.STAGE_ID === "C32:UC_VJZ0FL") {
-      groups[deal.UF_CRM_1742797326].pot += summDeal;
-    } else if (deal.STAGE_ID === "C32:UC_5BBXZ5" || deal.STAGE_ID === "C32:UC_6VDO9F") {
-      groups[deal.UF_CRM_1742797326].dog += summDeal;
-    } else if (deal.STAGE_ID === "C32:UC_R5DX1H") {
-      groups[deal.UF_CRM_1742797326].summ += summDeal;
-    }
-    if (deal.STAGE_ID === "C32:UC_LXYCFO" || deal.STAGE_ID === "C32:UC_VJZ0FL" || deal.STAGE_ID === "C32:UC_5BBXZ5" || deal.STAGE_ID === "C32:UC_6VDO9F") {
-      groups[deal.UF_CRM_1742797326].pd += summDeal;
-    }
-    if (deal.STAGE_ID === "C32:UC_LXYCFO" || deal.STAGE_ID === "C32:UC_VJZ0FL" || deal.STAGE_ID === "C32:UC_R5DX1H" || deal.STAGE_ID === "C32:UC_5BBXZ5" || deal.STAGE_ID === "C32:UC_6VDO9F") {
-      groups[deal.UF_CRM_1742797326].over += summDeal;
-    }
-  });
+const onCategoryChange = () => {
+  form.value.subcategory = null;
+};
 
-  for (let key in groups) {
-    const innerObj = groups[key];
-    if (innerObj.over !== undefined && innerObj.over <= 0) {
-      innerObj.over = '';
-    }
+const addLink = () => {
+  if (newLink.value) {
+    form.value.links.push(newLink.value);
+    newLink.value = '';
   }
-  return Object.values(groups);
-});
+};
 
-const totalRow2 = computed(() => {
-  if (groupedEvents.value !== undefined) {
-    const row = {
-      summ: 0,
-      pot: 0,
-      dog: 0,
-      pd: 0,
-      over: 0,
-      planProfit: 0,
-    };
-    groupedEvents.value.forEach(deal => {
-      row.summ += +deal.summ;
-      row.pot += +deal.pot;
-      row.dog += +deal.dog;
-      row.pd += +deal.pd;
-      row.over += +deal.over;
-      row.planProfit += +deal.planProfit;
-    });
-    return row;
-  }
-});
+const removeLink = (index) => {
+  form.value.links.splice(index, 1);
+};
 
-function displayFullName(firstName, middleName, lastName) {
-  const fullNameParts = [];
-  if (firstName) fullNameParts.push(firstName);
-  if (middleName) fullNameParts.push(middleName);
-  if (lastName) fullNameParts.push(lastName);
-  return fullNameParts.join(' ') || 'Имя не указано';
+//2
+
+
+
+const urgencyOptions = [
+  { title: '1 - не срочно', value: '1 - не срочно' },
+  { title: '2 - срочно', value: '2 - срочно' }
+];
+
+const importanceOptions = [
+  { title: '1 - менее важно', value: '1 - менее важно' },
+  { title: '2 - более важно', value: '2 - более важно' }
+];
+
+const threatsOptions = [
+  { title: '0 - устранение негативного влияния', value: '0 - устранение негативного влияния' },
+  { title: '1 - улучшение влияет на процесс', value: '1 - улучшение влияет на процесс' },
+  { title: '2 - улучшение влияет на компанию', value: '2 - улучшение влияет на компанию' }
+];
+
+//const b64Files = ref([]);
+
+const codeFiles = async(files) => {
+  let encodedFiles = [];
+
+      try {
+        for (const file of files) {
+          const base64 = await fileToBase64(file);
+          encodedFiles.push([file.name, base64.split(',')[1] || base64]);
+        }
+        return encodedFiles;
+      } catch (error) {
+
+      } finally {
+
+      }
 }
 
-function stageMap(stage) {
-  let stageName;
-  switch (stage) {
-    case "C32:UC_LXYCFO": stageName = "Потенциал - холодный"; break;
-    case "C32:UC_VJZ0FL": stageName = "Потенциал - теплый"; break;
-    case "C32:UC_6VDO9F": stageName = "Договоренности - холодные"; break;
-    case "C32:UC_5BBXZ5": stageName = "Договоренности - теплые"; break;
-    case "C32:UC_R5DX1H": stageName = "Передано"; break;
-    default: stageName = ""; break;
-  }
-  return stageName;
+const fileToBase64 = async(file) => {
+      return new Promise((resolve, reject) => {
+        // Создаем Blob из данных файла
+        const blob = new Blob([file], { type: file.type });
+        const reader = new FileReader();
+        
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+        
+        reader.readAsDataURL(blob);
+      });
 }
-async function exportToExcel() {
-  try {
-    isLoading.value = true;
-    const wb = XLSX.utils.book_new();
-    
-    // Создаем массив для всех данных
-    const allData = [];
 
-    // Проходим по всем группам и добавляем их данные
-    Object.keys(groupedDeals.value).forEach((catId) => {
-      const group = groupedDeals.value[catId];
-      
-      // Добавляем заголовок группы (будем объединять ячейки)
-      allData.push([group.title]);
-      
-      // Добавляем заголовки таблицы
-      allData.push(categoryHeaders.value.map(header => header.title));
-      
-      // Добавляем данные группы
-      group.items.forEach(item => {
-        const row = categoryHeaders.value.map(header => {
-          if (header.key === 'UF_CRM_1744062581756') {
-            return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(item[header.key]);
-          } else if (header.key === 'COMMENTS') {
-            return replaceBrackets(item[header.key] || '').replace(/<[^>]+>/g, '');
-          } else if (header.key === 'keyPerson') {
-            return item[header.key] || 'Не указано';
+const completeStepper = async() => {
+  //try {
+    if(isValid.value){
+      let itemId = 0;
+      isLoading.value = true;
+      const b64Files = await codeFiles(form.value.files);
+      let fields = [];
+      await new Promise((resolve) => {
+        BX24.callMethod(
+        'crm.item.fields', {
+            entityTypeId: 172
+        }, (res) => {
+            fields = res.data().fields;
+            resolve();
           }
-          return item[header.key] || '';
-        });
-        allData.push(row);
+        )
       });
-      
-      // Добавляем итоговую строку для группы (кроме Отказа)
-      if (group.title !== "Отказ") {
-        const totalRow = Array(categoryHeaders.value.length).fill('');
-        totalRow[0] = 'Итого:';
-        totalRow[categoryHeaders.value.length - 3] = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(group.totalSum);
-        allData.push(totalRow);
-      }
-      
-      // Добавляем пустые строки между группами
-      allData.push(['']);
+
+console.log(fields);
+const oldValues = [
+  form.value.direction && `Направление: ${form.value.direction}`,
+  form.value.requestType && `Тип заявки: ${form.value.requestType}`,
+  form.value.category && `Категория: ${form.value.category}`,
+  form.value.subcategory && `Подкатегория: ${form.value.subcategory}`,
+  form.value.description && `Описание: ${form.value.description}`,
+  form.value.links.length > 0 && `Ссылки: ${form.value.links.join(', ')}`,
+  project.value && `Проект[1С]: ${project.value}`,
+  urgency.value && `Срочность[1С]: ${urgency.value}`,
+  importance.value && `Важность[1С]: ${importance.value}`,
+  threatsOpportunities.value && `Угрозы/Возможности[1С]: ${threatsOpportunities.value}`
+]
+  .filter(Boolean) // Удаляем все пустые (false) значения
+  .join('\n'); // Объединяем оставшиеся значения с переносом строки
+
+console.log(form.value.category.indexOf("[Б24]")); // Выводим результат
+
+    await new Promise((resolve) => {
+      BX24.callMethod(
+        'crm.item.add', {
+            entityTypeId: 172,
+            fields: 
+            {
+              'title': 'test',
+              'comments': '123',
+              "categoryId": 69,
+              'ufCrm47_1752822542': form.value.category.indexOf("[Б24]: ") >= 0 ? fields.ufCrm47_1752822542.items.find(item => item.VALUE === form.value.category.replace("[Б24]: ", "")).ID : null, //б24
+              'ufCrm47_1752752059810': form.value.subcategory ? fields.ufCrm47_1752752059810.items.find(item => item.VALUE === form.value.subcategory).ID : null,// под ит
+              'ufCrm47_1752822806': form.value.category.indexOf("[ИТ]: ") >= 0 ? fields.ufCrm47_1752822806.items.find(item => item.VALUE === form.value.category.replace("[ИТ]: ", "")).ID : null,// ит
+              'ufCrm47_1752751229696': form.value.category.indexOf("[1С]: ") >= 0 ? fields.ufCrm47_1752751229696.items.find(item => item.VALUE === form.value.category.replace("[1С]: ", "")).ID : null,// 1с
+              "ufCrm47_1706781047803": form.value.direction ? fields.ufCrm47_1706781047803.items.find(item => item.VALUE === form.value.direction).ID : null, //направление
+              'ufCrm47_1698839820': b64Files, //Файлы / скрины
+              'ufCrm47_1706781202419': form.value.description,
+              'ufCrm47_1751371044498': form.value.requestType ? fields.ufCrm47_1751371044498.items.find(item => item.VALUE === form.value.requestType).ID : null,
+              'ufCrm47_1752218749933': importance.value ? fields.ufCrm47_1752218749933.items.find(item => item.VALUE === importance.value).ID : null, //Важность [1С]
+              'ufCrm47_1752218774249': urgency.value ? fields.ufCrm47_1752218774249.items.find(item => item.VALUE === urgency.value).ID : null, //Срочность [1С]
+              'ufCrm47_1752218834398': threatsOpportunities.value ? fields.ufCrm47_1752218834398.items.find(item => item.VALUE === threatsOpportunities.value).ID : null, //Угрозы/Возможности [1С]
+              'ufCrm47_1752218606665': project.value, //Проект [1C]
+              //'ufCrm47_1743432030': threatsOpportunities.value ? fields.ufCrm47_1743432030.items.find(item => item.VALUE === threatsOpportunities.value).ID : null, //ПРИОРИТЕТ
+              'ufCrm47_1706781277387': form.value.links.join(', '), //Ссылка для уточнения (А)*/
+            }
+        }, (res) => {
+            form.value = {
+              direction: null,
+              requestType: null,
+              category: null,
+              subcategory: null,
+              description: '',
+              links: [],
+              files: [],
+            };
+            step.value = 1;
+            newLink.value = '';
+            project.value = '';
+            urgency.value = null;
+            importance.value = null;
+            threatsOpportunities.value = null;
+            isValid.value = false;
+            itemId = res.data().item.id;
+            resolve();
+          }
+        )
     });
 
-    // Создаем рабочий лист
-    const ws = XLSX.utils.aoa_to_sheet(allData);
-    
-    // Настраиваем ширину колонок
-    ws['!cols'] = categoryHeaders.value.map(() => ({ wch: 25 }));
-    
-    // Определяем диапазон ячеек
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    
-    // Переменные для отслеживания позиций заголовков групп
-    let groupHeaderRow = 2; // Начинаем с третьей строки (после основного заголовка)
-    
-    // Применяем стили ко всем ячейкам
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-      for (let C = range.s.c; C <= range.e.c; ++C) {
-        const cell_address = {c: C, r: R};
-        const cell_ref = XLSX.utils.encode_cell(cell_address);
-        
-        if (!ws[cell_ref]) continue;
-        
-        // Основной заголовок отчета
-        if (R === 0 && C === 0) {
-          ws[cell_ref].s = {
-            font: { bold: true, sz: 16 },
-            alignment: { horizontal: "center" }
-          };
-          // Объединяем ячейки для основного заголовка
-          if (!ws['!merges']) ws['!merges'] = [];
-          ws['!merges'].push({ s: {r: 0, c: 0}, e: {r: 0, c: categoryHeaders.value.length - 1} });
+    await new Promise((resolve) => {
+          BX24.callMethod(
+        "crm.timeline.comment.add",
+        {
+            fields:
+            {
+                "ENTITY_ID": itemId,
+                "ENTITY_TYPE": "DYNAMIC_172",
+                "COMMENT": oldValues,
+            }
         }
-        
-        // Заголовки групп
-        const groupTitles = ["Передано", "Договоренности", "Потенциал", "Отказ"];
-        if (groupTitles.includes(ws[cell_ref].v)) {
-          ws[cell_ref].s = {
-            fill: { 
-              patternType: "solid", 
-              fgColor: { 
-                rgb: ws[cell_ref].v === "Передано" ? "7BC56E" : 
-                     ws[cell_ref].v === "Договоренности" ? "FFF893" : 
-                     ws[cell_ref].v === "Потенциал" ? "FFF893" : 
-                     "FF5852" 
-              } 
-            },
-            font: { bold: true, color: { rgb: "000000" } },
-            alignment: { horizontal: "center" }
-          };
-          
-          // Объединяем ячейки для заголовков групп
-          if (!ws['!merges']) ws['!merges'] = [];
-          ws['!merges'].push({ 
-            s: {r: R, c: 0}, 
-            e: {r: R, c: categoryHeaders.value.length - 1} 
-          });
-          
-          groupHeaderRow = R;
-        }
-        
-        // Заголовки столбцов (первая строка после заголовка группы)
-        if (R === groupHeaderRow + 1) {
-          ws[cell_ref].s = {
-            fill: { patternType: "solid", fgColor: { rgb: "676767" } },
-            font: { bold: true, color: { rgb: "FFFFFF" } },
-            alignment: { horizontal: "center" }
-          };
-        }
-        
-        // Итоговые строки
-        if (ws[cell_ref].v === 'Итого:') {
-          ws[cell_ref].s = {
-            font: { bold: true },
-            alignment: { horizontal: "left" }
-          };
-        }
-      }
-    }
-
-    // Добавляем лист в книгу
-    XLSX.utils.book_append_sheet(wb, ws, 'Отчет по сделкам');
-    
-    // Сохраняем файл
-    XLSX.writeFile(wb, 'Deals_Report.xlsx');
-  } catch (error) {
-    errorDisplay.value = error.message || 'Ошибка при экспорте в Excel';
-    errorDialog.value = true;
-  } finally {
+      );
+      resolve();
+    });
+    successDialog.value = true;
+  }
+ // } catch (error) {
+//    errorDisplay.value = error;
+//    errorDialog.value = true;
+//  } finally {
     isLoading.value = false;
-  }
-}
-
-onMounted(async () => {
-  filters.value.value.events = await callApi("crm.item.list", { "!ufCrm38_1751875905992": "null" }, ["id", "title"], 1052, 0, 0);
-  const assigned = await callApi("user.get", {}, ["NAME", "SECOND_NAME", "LAST_NAME", "ID"], null, 0, 0);
-  assigned.forEach(user => {
-    const parts = [];
-    if (user.NAME) parts.push(user.NAME);
-    if (user.SECOND_NAME) parts.push(user.SECOND_NAME);
-    if (user.LAST_NAME) parts.push(user.LAST_NAME);
-    user.FULL_NAME = parts.join(' ');
-  });
-  filters.value.value.assigned = JSON.parse(JSON.stringify(assigned));
-  await getData();
-  isLoading.value = false;
-});
-
-const getData = async () => {
-  isLoading.value = true;
-  totalRow.value = {
-    UF_CRM_1745222013992: 0,
-    UF_CRM_1742971372921: 0,
-    UF_CRM_1742972167794: 0,
-    UF_CRM_1742972105926: 0,
-    UF_CRM_1744062581756: 0,
-  };
-  const filterCategory = filters.value.selected.category.length === 0 ? filters.value.value.category.map(item => item.id) : filters.value.selected.category;
-  const filterEvents = filters.value.selected.events.length === 0 ? filters.value.value.events.map(item => item.id) : filters.value.selected.events;
-  let dates = [];
-  if (filters.value.selected.dateFrom) {
-    dates[0] = moment(filters.value.selected.dateFrom).format('YYYY-MM-DD');
-  } else {
-    dates[0] = null;
-  }
-  if (filters.value.selected.dateTo) {
-    dates[1] = moment(filters.value.selected.dateTo).add(1, 'days').format('YYYY-MM-DD');
-  } else {
-    dates[1] = null;
-  }
-  let dealsLocal = await callApi("crm.deal.list", { "STAGE_ID": filterCategory, "UF_CRM_1742797326": filterEvents }, ["UF_CRM_1744096783472", 'UF_CRM_1742797326', "STAGE_ID", "ASSIGNED_BY_ID", 'UF_CRM_1744890618774', 'UF_CRM_1744062581756', 'UF_CRM_1745995594', 'UF_CRM_1744064620850', 'UF_CRM_1744095783871', 'UF_CRM_1742906712910', "UF_CRM_1745222013992", "UF_CRM_1742971372921", "UF_CRM_1742972105926", "UF_CRM_1742972167794", "UF_CRM_1745308616558", "COMMENTS", "CONTACT_ID"], null, 0, 0);
-  const date = moment();
-  const isoDate = date.toISOString();
-  events.value = await new Promise((resolve) => {
-    BX24.callMethod(
-      'crm.item.list',
-      {
-        entityTypeId: 1052,
-        filter: { ">ufCrm38_1751875905992": isoDate },
-        order: { id: 'DESC' },
-      },
-      (result) => {
-        if (result.error()) {
-          console.error(result.error());
-          return;
-        }
-        resolve(result.data().items);
-      }
-    );
-  });
-  const statuses = await new Promise((resolve) => {
-    BX24.callMethod(
-      'crm.item.list',
-      {
-        entityTypeId: 1080,
-        order: { id: 'DESC' },
-      },
-      (result) => {
-        if (result.error()) {
-          console.error(result.error());
-          return;
-        }
-        resolve(result.data().items);
-      }
-    );
-  });
-  const usersFind = Array.from(new Set(dealsLocal.map(deal => deal.ASSIGNED_BY_ID)));
-  const users = await callApi("user.get", { "ID": usersFind }, []);
-const contactIds = Array.from(new Set(dealsLocal.map(deal => deal.CONTACT_ID).filter(id => id)));
-
-  const contacts = {};
-  for (const contactId of contactIds) {
-    const contact = await getContactById(contactId);
-    if (contact) {
-      contacts[contactId] = contact;
-    }
-  }
-  dealsLocal.forEach(obj => {
-    const event = events.value.find(e => e.id == obj.UF_CRM_1742797326);
-    const user = users.find(e => e.ID == obj.ASSIGNED_BY_ID);
-    const status = statuses.find(e => e.id == obj.UF_CRM_1745995594[0]);
-    obj.UF_CRM_1745995594 = obj.UF_CRM_1745995594[0];
-    obj.UF_CRM_1745222013992 = obj.UF_CRM_1745222013992 ? obj.UF_CRM_1745222013992.replace('|RUB', "") : 0;
-    obj.UF_CRM_1742971372921 = obj.UF_CRM_1742971372921 ? obj.UF_CRM_1742971372921.replace('|RUB', "") : 0;
-    obj.UF_CRM_1742972105926 = obj.UF_CRM_1742972105926 ? obj.UF_CRM_1742972105926.replace('|RUB', "") : 0;
-    obj.UF_CRM_1742972167794 = obj.UF_CRM_1742972167794 ? obj.UF_CRM_1742972167794.replace('|RUB', "") : 0;
-    obj.UF_CRM_1744062581756 = obj.UF_CRM_1744062581756 ? obj.UF_CRM_1744062581756.replace('|RUB', "") : 0;
-    obj.event = event && event.title ? event.title : "";
-    obj.ASSIGNED_BY_ID = displayFullName(user.LAST_NAME, user.NAME, user.SECOND_NAME);
-    obj.status = status && status.title ? status.title : "";
-    obj.stage = stageMap(obj.STAGE_ID);
-    if (obj.CONTACT_ID && contacts[obj.CONTACT_ID]) {
-      const contact = contacts[obj.CONTACT_ID];
-      obj.keyPerson = displayFullName(contact.LAST_NAME, contact.NAME, contact.SECOND_NAME);
-    } else {
-      obj.keyPerson = "Не указано";
-    }
-  });
-  dealsLocal.forEach(deal => {
-    totalRow.value.UF_CRM_1745222013992 += +deal.UF_CRM_1745222013992;
-    totalRow.value.UF_CRM_1742971372921 += +deal.UF_CRM_1742971372921;
-    totalRow.value.UF_CRM_1742972167794 += +deal.UF_CRM_1742972167794;
-    totalRow.value.UF_CRM_1742972105926 += +deal.UF_CRM_1742972105926;
-    totalRow.value.UF_CRM_1744062581756 += +deal.UF_CRM_1744062581756;
-  });
-  deals.value = JSON.parse(JSON.stringify(dealsLocal));
-  deals2.value = [];
-  isLoading.value = false;
+//  }
 };
 
-function getTitleClass(title) {
-  if (title.includes('Потенциал') || title.includes('Договоренности')) return { 'background-color': '#fff893' };
-  if (title.includes('Передано')) return { 'background-color': '#7bc56e' };
-  if (title.includes('Отказ')) return { 'background-color': '#ff5852' };
-  return { 'background-color': 'grey' };
-}
+const showVideo = ref(false);
+const videoPlayer = ref(null);
+const videoSrc = ref('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
+const videoPoster = ref('https://peach.blender.org/wp-content/uploads/bbb-splash.png');
+
+// При закрытии диалога останавливаем видео
+watch(showVideo, (newVal) => {
+  if (!newVal && videoPlayer.value) {
+    videoPlayer.value.pause();
+  }
+});
+const users = ref([]);
+
+onMounted(async() => {
+  BX24.callMethod(
+    "user.get",
+    {
+        "ID": [10051, 11307, 12031, 9989, 12603, 12181],
+    },
+    function(result)
+    {
+        if(result.error())
+            console.error(result.error());
+        else
+          users.value = result.data();
+          users.value.forEach(user => user.FULL_NAME = formatFullName(user));
+    }
+);
+  isLoading.value = false;
+});
 </script>
+
 <style lang="sass">
+
   .v-list-item__content
     display: flex
     align-items: center
@@ -749,6 +820,11 @@ function getTitleClass(title) {
 
   .v-stepper-window
     margin: 0.6rem !important
+
+  .buttons
+    display: flex
+    justify-content: space-between
+    padding: 0 1.5rem 1.5rem 1.5rem
 
   .v-messages, .v-input__details
     display: none
@@ -770,108 +846,44 @@ function getTitleClass(title) {
     gap: 1.5rem
 
   .success.white--text
-    background: #4cb050
-    display: flex
-    align-items: center
-    justify-content: center
-    padding: 0 1rem
-    height: 4rem
-    color: white
-    font-size: 1.25rem
+      background: #4cb050
+      display: flex
+      align-items: center
+      justify-content: center
+      padding: 0 1rem
+      height: 4rem
+      color: white
+      font-size: 1.25rem
 
   .error.white--text
-    background: #e30f0f
-    display: flex
-    align-items: center
-    justify-content: center
-    padding: 0 1rem
-    height: 4rem
-    color: white
-    font-size: 1.25rem
+      background: #e30f0f
+      display: flex
+      align-items: center
+      justify-content: center
+      padding: 0 1rem
+      height: 4rem
+      color: white
+      font-size: 1.25rem
 
   .successDialog .v-card-actions, .errorDialog .v-card-actions
-    border-top: 1px solid #dddddd
+      border-top: 1px solid #dddddd
 
   .loading 
+        width: 100%
+        height: 100%
+        display: flex
+        flex-direction: column
+        align-items: center
+        justify-content: center
+        gap: 1rem
+        font-size: 2rem
+        font-weight: 500
+
+  .reports-button
     width: 100%
-    height: 100%
-    display: flex
-    flex-direction: column
-    align-items: center
-    justify-content: center
-    gap: 1rem
-    font-size: 2rem
-    font-weight: 500
+    margin-top: 1rem
 
-  .v-table .v-table__wrapper > table > tbody > tr > td, .v-table .v-table__wrapper > table > thead > tr > th, .v-table .v-table__wrapper > table > tfoot > tr > td
-    border: thin solid rgba(var(--v-border-color), var(--v-border-opacity))
-    text-align: center
-
-  .v-table 
-    border-radius: 0.25rem
-    border: 2px solid rgba(var(--v-border-color), var(--v-border-opacity))
-
-  .v-data-table-footer
-    justify-content: center
-
-  .filters
-    display: grid
-    grid-template-columns: 1fr 1fr
-    gap: 1rem
-    margin-bottom: 1rem
-
-  .filters .v-input__control
-    height: 100%
-    max-height: 5rem !important
-    
-  .filters .v-field__field
-    overflow: hidden
-
-  .buttons
-    width: 100%
-    display: flex
-    align-items: center
-    justify-content: center
-    gap: 1rem
-    margin-top: 2rem
-    display: grid
-    grid-template-columns: 1fr 1fr
-
-  .loading 
-    width: 100%
-    height: 100%
-    display: flex
-    flex-direction: column
-    align-items: center
-    justify-content: center
-    gap: 1rem
-    font-size: 2rem
-    font-weight: 500
-    z-index: 5
-    position: absolute
-    background: white
-
-  .date-title
-    display: flex
-    justify-content: space-between
-
-  .v-dialog > .v-overlay__content > .v-card, .v-dialog > .v-overlay__content > form > .v-card
-    padding: 1em
-
-  .v-dialog > .v-overlay__content > .v-card > .v-card-actions, .v-dialog > .v-overlay__content > form > .v-card > .v-card-actions
-    justify-content: center
-
-  .v-main
-    padding: 0.75rem
-
-  .v-data-table__th 
-    background: #676767
-    color: white
-
-  tbody .v-data-table__tr:nth-child(even)
-    background-color: white
-
-  tbody .v-data-table__tr:nth-child(odd)
-    background-color: #dddddd
+  .close-report
+    margin-left: auto !important
 
 </style>
